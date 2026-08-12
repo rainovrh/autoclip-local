@@ -327,6 +327,29 @@ async def render_project(
     return JobAcceptedResponse(job_id=job.id)
 
 
+@router.post("/{project_id}/broll", response_model=JobAcceptedResponse, status_code=202)
+async def search_broll(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Cari b-roll assets untuk klip dalam proyek."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    clips = await session.execute(
+        select(Clip).where(Clip.project_id == project_id)
+    )
+    if clips.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Klip belum tersedia. Jalankan rendering terlebih dahulu.",
+        )
+
+    job = await enqueue_job(session, project_id, "broll_search", priority=2)
+    return JobAcceptedResponse(job_id=job.id)
+
+
 @router.get("", response_model=ProjectListResponse)
 async def list_projects(
     session: AsyncSession = Depends(get_db_session),
