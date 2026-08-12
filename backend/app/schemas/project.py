@@ -57,6 +57,20 @@ class ProjectResponse(BaseModel):
     updated_at: datetime
 
 
+class VideoSourceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    file_path: str
+    audio_path: str | None
+    resolution: str | None
+    duration_seconds: float | None
+    fps: float | None
+    quality_check_passed: bool
+    created_at: datetime
+
+
 class ProjectListResponse(BaseModel):
     items: list[ProjectResponse]
     total: int
