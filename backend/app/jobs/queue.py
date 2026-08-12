@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,8 @@ from app.core.config import JobType
 from app.db.models.processing_job import ProcessingJob
 
 logger = logging.getLogger(__name__)
+
+UTC = timezone.utc
 
 
 async def enqueue_job(

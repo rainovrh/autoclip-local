@@ -11,6 +11,8 @@ from app.core.config import get_settings
 from app.db.models.project import Project
 from app.db.models.video_source import VideoSource
 from app.db.session import get_db_session
+from app.jobs.queue import enqueue_job
+from app.schemas.job import JobAcceptedResponse
 from app.schemas.project import (
     ProjectCreate,
     ProjectListResponse,
@@ -207,6 +209,29 @@ async def download_youtube(
         downloaded_path.name,
     )
     return VideoSourceResponse.model_validate(video_source)
+
+
+@router.post("/{project_id}/transcribe", response_model=JobAcceptedResponse, status_code=202)
+async def transcribe_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Antrikan job transkripsi Whisper untuk proyek."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    video_source = await session.execute(
+        select(VideoSource).where(VideoSource.project_id == project_id)
+    )
+    if video_source.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Video sumber belum diunggah.",
+        )
+
+    job = await enqueue_job(session, project_id, "whisper_transcribe", priority=10)
+    return JobAcceptedResponse(job_id=job.id)
 
 
 @router.get("", response_model=ProjectListResponse)
