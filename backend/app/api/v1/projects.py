@@ -216,6 +216,29 @@ async def download_youtube(
     return VideoSourceResponse.model_validate(video_source)
 
 
+@router.post("/{project_id}/extract-audio", response_model=JobAcceptedResponse, status_code=202)
+async def extract_audio(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Ekstrak audio dari video sumber proyek."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    video_source = await session.execute(
+        select(VideoSource).where(VideoSource.project_id == project_id)
+    )
+    if video_source.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Video sumber belum diunggah.",
+        )
+
+    job = await enqueue_job(session, project_id, "ffmpeg_extract_audio", priority=20)
+    return JobAcceptedResponse(job_id=job.id)
+
+
 @router.post("/{project_id}/transcribe", response_model=JobAcceptedResponse, status_code=202)
 async def transcribe_project(
     project_id: int,
@@ -347,6 +370,20 @@ async def search_broll(
         )
 
     job = await enqueue_job(session, project_id, "broll_search", priority=2)
+    return JobAcceptedResponse(job_id=job.id)
+
+
+@router.post("/{project_id}/gc", response_model=JobAcceptedResponse, status_code=202)
+async def garbage_collect_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Bersihkan file temporary untuk proyek yang sudah selesai."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    job = await enqueue_job(session, project_id, "garbage_collect", priority=0)
     return JobAcceptedResponse(job_id=job.id)
 
 

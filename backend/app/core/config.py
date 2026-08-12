@@ -25,6 +25,7 @@ JobType = Literal[
     "ollama_analyze",
     "render_clip",
     "broll_search",
+    "garbage_collect",
 ]
 
 JobStatus = Literal["queued", "running", "completed", "failed"]
