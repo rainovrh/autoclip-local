@@ -8,7 +8,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.db.models.analysis_result import AnalysisResult
+from app.db.models.clip import Clip
+from app.db.models.highlight_moment import HighlightMoment
 from app.db.models.project import Project
+from app.db.models.subtitle_style import SubtitleStyle
 from app.db.models.transcript import Transcript
 from app.db.models.video_source import VideoSource
 from app.db.session import get_db_session
@@ -255,6 +259,71 @@ async def analyze_project(
         )
 
     job = await enqueue_job(session, project_id, "ollama_analyze", priority=5)
+    return JobAcceptedResponse(job_id=job.id)
+
+
+@router.post("/{project_id}/render", response_model=JobAcceptedResponse, status_code=202)
+async def render_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Buat klip dari highlight moments dan antrikan rendering."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    analysis = await session.execute(
+        select(AnalysisResult).where(AnalysisResult.project_id == project_id)
+    )
+    if analysis.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Analisis belum tersedia. Jalankan analisis terlebih dahulu.",
+        )
+
+    moments_result = await session.execute(
+        select(HighlightMoment)
+        .where(HighlightMoment.analysis_id == analysis.scalar_one().id)
+        .where(HighlightMoment.status == "pending")
+    )
+    moments = moments_result.scalars().all()
+    if not moments:
+        raise HTTPException(
+            status_code=422,
+            detail="Tidak ada highlight moment yang perlu dirender.",
+        )
+
+    created_clips = 0
+    for moment in moments:
+        existing_clip = await session.execute(
+            select(Clip).where(Clip.highlight_moment_id == moment.id)
+        )
+        if existing_clip.scalar_one_or_none() is not None:
+            continue
+
+        clip = Clip(
+            project_id=project.id,
+            highlight_moment_id=moment.id,
+            aspect_ratio="9:16",
+            crop_mode="center_crop_static",
+            render_status="queued",
+        )
+        session.add(clip)
+        await session.flush()
+
+        subtitle_style = SubtitleStyle(clip_id=clip.id)
+        session.add(subtitle_style)
+        created_clips += 1
+
+    await session.commit()
+
+    if created_clips == 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Semua klip sudah memiliki rendering.",
+        )
+
+    job = await enqueue_job(session, project_id, "render_clip", priority=1)
     return JobAcceptedResponse(job_id=job.id)
 
 
