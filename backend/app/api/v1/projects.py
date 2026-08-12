@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.models.project import Project
+from app.db.models.transcript import Transcript
 from app.db.models.video_source import VideoSource
 from app.db.session import get_db_session
 from app.jobs.queue import enqueue_job
@@ -231,6 +232,29 @@ async def transcribe_project(
         )
 
     job = await enqueue_job(session, project_id, "whisper_transcribe", priority=10)
+    return JobAcceptedResponse(job_id=job.id)
+
+
+@router.post("/{project_id}/analyze", response_model=JobAcceptedResponse, status_code=202)
+async def analyze_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Antrikan job analisis LLM untuk proyek."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    transcript = await session.execute(
+        select(Transcript).where(Transcript.project_id == project_id)
+    )
+    if transcript.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Transkrip belum tersedia. Jalankan transkripsi terlebih dahulu.",
+        )
+
+    job = await enqueue_job(session, project_id, "ollama_analyze", priority=5)
     return JobAcceptedResponse(job_id=job.id)
 
 
