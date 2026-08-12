@@ -17,6 +17,7 @@ from app.schemas.project import (
     ProjectResponse,
     VideoSourceResponse,
 )
+from app.services.youtube import download_youtube_video, is_valid_youtube_url
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,75 @@ async def upload_video(
         project_id,
         destination.name,
         destination.stat().st_size,
+    )
+    return VideoSourceResponse.model_validate(video_source)
+
+
+@router.post("/{project_id}/download-youtube", response_model=VideoSourceResponse, status_code=201)
+async def download_youtube(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> VideoSourceResponse:
+    """Unduh video YouTube ke dalam proyek menggunakan yt-dlp."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    if project.source_type != "youtube":
+        raise HTTPException(
+            status_code=422,
+            detail="Proyek ini bukan sumber YouTube.",
+        )
+
+    youtube_url = project.source_url
+    if not youtube_url or not is_valid_youtube_url(youtube_url):
+        raise HTTPException(
+            status_code=422,
+            detail="URL YouTube tidak valid.",
+        )
+
+    existing_source = await session.execute(
+        select(VideoSource).where(VideoSource.project_id == project_id)
+    )
+    existing = existing_source.scalar_one_or_none()
+    if existing:
+        old_path = Path(existing.file_path)
+        if old_path.exists():
+            old_path.unlink()
+        await session.delete(existing)
+        await session.flush()
+
+    try:
+        metadata = download_youtube_video(youtube_url, Path(project.folder_path))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gagal mengunduh video: {exc}",
+        ) from exc
+
+    downloaded_path = Path(metadata["file_path"])
+    if not downloaded_path.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="File video tidak ditemukan setelah unduhan.",
+        )
+
+    video_source = VideoSource(
+        project_id=project.id,
+        file_path=str(downloaded_path),
+        resolution=metadata.get("resolution"),
+        duration_seconds=metadata.get("duration"),
+        fps=metadata.get("fps"),
+    )
+    session.add(video_source)
+    await session.commit()
+    await session.refresh(video_source)
+
+    logger.info(
+        "YouTube diunduh: project=%s url=%s file=%s",
+        project_id,
+        youtube_url,
+        downloaded_path.name,
     )
     return VideoSourceResponse.model_validate(video_source)
 
