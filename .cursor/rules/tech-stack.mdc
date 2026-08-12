@@ -1,0 +1,209 @@
+---
+description: Tech stack & architecture rules untuk AutoClip Local. WAJIB dipatuhi setiap kali agent membuat, mengedit, atau menyarankan kode di repo ini.
+alwaysApply: true
+---
+
+# TECH_STACK.md — AutoClip Local
+
+> Dokumen ini adalah sumber kebenaran (source of truth) tentang teknologi yang
+> BOLEH dan TIDAK BOLEH dipakai di proyek ini. Jika ada instruksi lain yang
+> bertentangan dengan dokumen ini, dokumen ini yang menang, kecuali user
+> secara eksplisit mengubahnya.
+
+## 0. Prinsip Inti
+
+1. **100% gratis & lokal-first.** Tidak boleh menambahkan dependency yang
+   mewajibkan akun berbayar, SaaS berbayar, atau cloud compute (GPU cloud,
+   managed DB, dsb). Satu-satunya API eksternal yang diizinkan adalah
+   **Pexels API** (free tier, untuk B-roll) — dan itu pun bersifat opsional
+   / non-blocking sesuai SPECIFICATION.md.
+2. **Single-user, single-machine.** Jangan desain sistem seolah-olah multi-
+   tenant (tidak perlu auth multi-user, tidak perlu message broker
+   terdistribusi seperti Kafka).
+3. **Model AI berat berjalan bergantian**, bukan paralel
+   (FFmpeg → Whisper → Ollama → Render). Jangan buat arsitektur yang
+   menjalankan Whisper dan Ollama bersamaan di GPU/RAM yang sama.
+4. **Resumable.** Semua proses panjang harus bisa dilanjutkan dari
+   checkpoint terakhir (lihat `projects.status` di DATABASE.sql).
+
+---
+
+## 1. Bahasa Pemrograman
+
+| Layer            | Bahasa       | Versi minimum |
+|-------------------|-------------|----------------|
+| Backend / AI      | Python       | 3.11           |
+| Frontend          | TypeScript   | 5.x            |
+| Scripting/tooling  | Bash         | POSIX-compatible |
+
+Agent **wajib** menulis type hints Python (`def foo(x: int) -> str:`) dan
+TypeScript strict mode di frontend (`"strict": true` di `tsconfig.json`).
+
+---
+
+## 2. Backend Stack (Web Layer)
+
+| Komponen           | Pilihan                     | Catatan |
+|---------------------|-----------------------------|---------|
+| Web framework        | **FastAPI**                | async-first, auto OpenAPI docs |
+| ASGI server           | **Uvicorn** (standard)     | dev: `--reload`, prod lokal: workers=1 (karena single-user & GPU-bound) |
+| Validasi data          | **Pydantic v2**            | dipakai untuk semua request/response schema |
+| ORM                     | **SQLAlchemy 2.0** (async) | mode `asyncio` dengan `aiosqlite` |
+| Migrasi DB               | **Alembic**                | wajib untuk setiap perubahan skema |
+| Database                  | **SQLite**                  | sesuai DATABASE.sql, file lokal di `./data/autoclip.db` |
+| Realtime progress          | **WebSocket** (bawaan FastAPI) atau **SSE** | untuk progress bar transkripsi/render |
+| Background job runner        | **Custom async queue** berbasis tabel `processing_jobs` (BUKAN Celery/Redis) | menghindari dependency infra tambahan; job disimpan di SQLite agar resumable |
+| HTTP client (Ollama, Pexels)   | **httpx** (async)          | timeout wajib di-set eksplisit, khususnya untuk Pexels (non-blocking fallback) |
+| Env config                       | **python-dotenv** + Pydantic `BaseSettings` | baca `.env`, termasuk `PEXELS_API_KEY` |
+
+**Dilarang:** Celery, RabbitMQ, Redis, Django, Flask (kecuali user ubah
+keputusan ini secara eksplisit).
+
+---
+
+## 3. AI / ML Stack
+
+| Komponen              | Pilihan                              | Catatan |
+|-------------------------|----------------------------------------|---------|
+| Transkripsi                | **faster-whisper** (CTranslate2 backend) | lebih cepat & hemat VRAM dibanding openai-whisper asli; tetap mendukung word-level timestamps |
+| Runtime tensor                | **PyTorch** (cuda build jika GPU NVIDIA tersedia, fallback CPU) | dipisah di `requirements-ai.txt` |
+| LLM lokal untuk analisis          | **Ollama** (REST API `localhost:11434`) | model default: `llama3.1:8b` (bisa diganti via `.env` -> `app_settings`) |
+| Format output LLM                    | **JSON mode terstruktur** (pydantic schema divalidasi setelah respons) | LLM hanya mengembalikan ID kalimat/kata, sesuai aturan Anti-Halusinasi |
+| Deteksi GPU                              | `torch.cuda.is_available()` saat startup, log ke console jika fallback ke CPU |
+
+**Dilarang:** OpenAI API, Anthropic API, atau layanan transkripsi/LLM
+berbayar apa pun sebagai default. Boleh disediakan sebagai *opsional
+plug-in* di masa depan, tapi tidak sebagai dependency inti.
+
+---
+
+## 4. Video & Audio Processing
+
+| Komponen             | Pilihan                       | Catatan |
+|------------------------|---------------------------------|---------|
+| Engine utama            | **FFmpeg** (binary system, bukan library Python murni) | wajib ada di PATH, cek saat startup |
+| Wrapper Python              | **MoviePy** (sesuai SPECIFICATION.md) untuk operasi tingkat tinggi (crop, concat, overlay) | untuk operasi berat/presisi tinggi (render final), panggil FFmpeg langsung via `subprocess`/`ffmpeg-python` |
+| Download YouTube               | **yt-dlp**                     | cek kualitas & durasi sebelum unduh penuh |
+| Subtitle rendering                 | **pysubs2** untuk generate file `.ass` (mendukung karaoke/highlight per kata) lalu di-burn via FFmpeg `subtitles` filter |
+| Font untuk subtitle                    | font lokal (mis. Inter, Montserrat) disimpan di `assets/fonts/`, tidak fetch dari Google Fonts saat runtime |
+
+**Dilarang:** layanan rendering cloud (mis. Shotstack, Cloudinary video API).
+
+---
+
+## 5. Frontend Stack
+
+| Komponen           | Pilihan                          | Catatan |
+|----------------------|-------------------------------------|---------|
+| Framework               | **React 18** + **Vite**            | SPA murni, TIDAK perlu Next.js/SSR karena app lokal single-user |
+| Bahasa                     | TypeScript (strict)                |
+| Styling                       | **Tailwind CSS**                    |
+| Komponen UI                       | **shadcn/ui**                       | akses penuh ke kode komponen, gratis |
+| State management                     | **Zustand**                          | ringan, cocok untuk state proyek/klip |
+| Data fetching / cache                    | **TanStack Query**                    | untuk polling status job & riwayat klip |
+| Player preview                             | **react-player** atau `<video>` native | untuk preview klip 9:16 |
+| Form handling                                | **React Hook Form** + **Zod**          | validasi form pengaturan subtitle & aspect ratio |
+| Package manager                                | **pnpm**                                |
+
+**Dilarang:** framework CSS berbayar (Tailwind UI Pro dsb), CDN font
+berbayar, analytics/tracking pihak ketiga.
+
+---
+
+## 6. Dependency Isolation (wajib sesuai SPECIFICATION.md §4)
+
+```
+/backend
+  /requirements-web.txt   # FastAPI, SQLAlchemy, Alembic, httpx, pydantic, uvicorn
+  /requirements-ai.txt    # torch, faster-whisper, ffmpeg-python
+  /venv (atau conda env terpisah per kebutuhan jika perlu isolasi CUDA)
+```
+
+Agent **wajib** menempatkan import AI-heavy (torch, faster-whisper) hanya
+di modul yang dipanggil oleh job worker, bukan di top-level `main.py`, agar
+startup web server tetap ringan.
+
+---
+
+## 7. Struktur Folder yang Direkomendasikan
+
+```
+autoclip-local/
+├── backend/
+│   ├── app/
+│   │   ├── api/            # FastAPI routers (projects, clips, jobs, settings)
+│   │   ├── core/           # config, .env loader, logging
+│   │   ├── db/             # SQLAlchemy models + Alembic migrations
+│   │   ├── services/
+│   │   │   ├── transcription/   # wrapper faster-whisper
+│   │   │   ├── analysis/        # wrapper Ollama + prompt templates
+│   │   │   ├── rendering/       # FFmpeg/MoviePy pipeline
+│   │   │   └── broll/           # Pexels client + fallback logic
+│   │   ├── jobs/            # queue engine berbasis processing_jobs
+│   │   └── main.py
+│   ├── requirements-web.txt
+│   └── requirements-ai.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── stores/          # Zustand stores
+│   │   └── lib/             # API client (fetch ke FastAPI)
+│   └── package.json
+├── storage/
+│   └── {project_title}/     # output per proyek, sesuai struktur folder di spec
+├── DATABASE.sql
+├── SPECIFICATION.md
+└── .env
+```
+
+---
+
+## 8. Aturan Tambahan untuk AI Agent (Cursor)
+
+- **Jangan** mengganti SQLite dengan PostgreSQL/MySQL kecuali diminta —
+  ini aplikasi single-user lokal, SQLite sudah cukup dan nol-konfigurasi.
+- **Jangan** menambahkan Docker Compose sebagai keharusan; boleh disediakan
+  sebagai opsi tambahan, tapi cara jalan utama harus tetap `venv` lokal
+  langsung di OS host (agar akses GPU lokal tidak ribet lewat container).
+- Setiap endpoint FastAPI yang memicu proses berat (`transcribe`, `analyze`,
+  `render`) **wajib** async dan hanya mendaftarkan job ke `processing_jobs`,
+  bukan mengeksekusi langsung secara blocking di request handler.
+- Setiap pemanggilan Pexels API **wajib** dibungkus try/except dengan
+  timeout eksplisit dan fallback ke `status = 'fallback_used'` sesuai
+  DATABASE.sql — tidak boleh membuat seluruh render gagal karena Pexels.
+- Simpan semua kunci API (Pexels) di `.env`, jangan pernah hardcode di kode
+  atau commit ke git (`.env` wajib masuk `.gitignore`).
+- Ikuti state machine di `projects.status` untuk semua logika checkpoint —
+  jangan buat state tambahan tanpa mengupdate DATABASE.sql juga.
+
+---
+
+## 9. Versi Pin Referensi (update sesuai rilis stabil terbaru saat implementasi)
+
+```
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+alembic>=1.13
+pydantic>=2.7
+httpx>=0.27
+aiosqlite>=0.20
+python-dotenv>=1.0
+
+torch>=2.3          # pilih build cuXXX sesuai GPU, atau cpu build
+faster-whisper>=1.0
+ffmpeg-python>=0.2
+moviepy>=1.0.3
+yt-dlp>=2024.8
+pysubs2>=1.7
+
+react>=18
+vite>=5
+typescript>=5
+tailwindcss>=3.4
+zustand>=4.5
+@tanstack/react-query>=5
+react-hook-form>=7
+zod>=3.23
+```

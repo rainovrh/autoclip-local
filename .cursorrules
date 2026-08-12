@@ -1,0 +1,197 @@
+# .cursorrules — AutoClip Local
+
+Dokumen ini melengkapi `tech-stack.mdc` (yang mengatur TEKNOLOGI apa yang
+dipakai) dengan aturan BAGAIMANA cara menulis kode dan menyusun folder di
+proyek ini. Cursor AI Agent wajib mengikuti aturan ini di setiap perubahan
+kode, tanpa perlu diminta ulang oleh user.
+
+Referensi wajib dibaca sebelum generate kode apa pun:
+- `SPECIFICATION.md` — kebutuhan fungsional & hak akses
+- `DATABASE.sql` — skema tabel & relasi (ERD)
+- `.cursor/rules/tech-stack.mdc` — teknologi yang diizinkan/dilarang
+
+---
+
+## 1. Prinsip Umum
+
+1. **Konsistensi > preferensi pribadi.** Ikuti pola yang sudah ada di repo
+   sebelum membuat pola baru. Jika belum ada pola, ikuti aturan di bawah.
+2. **Type-safe di semua layer.** Python wajib type hints, TypeScript wajib
+   strict mode. Jangan pakai `Any` / `any` kecuali benar-benar tidak ada
+   pilihan lain — dan jika terpaksa, beri komentar alasannya.
+3. **Fail loud, bukan fail silent.** Jangan `except: pass` atau menelan
+   error tanpa logging. Proses AI (Whisper/Ollama/FFmpeg) rawan gagal —
+   setiap kegagalan wajib tercatat ke `processing_jobs.error_message`.
+4. **Idempotent & resumable.** Setiap fungsi yang menyentuh state proyek
+   harus aman dipanggil ulang tanpa merusak data (selaras dengan Checkpoint
+   Engine di `projects.status`).
+5. **Bahasa kode vs bahasa komentar:**
+   - Nama variabel, fungsi, class, file, endpoint → **Bahasa Inggris**.
+   - Komentar/docstring yang menjelaskan logika bisnis domain (mis. alasan
+     Anti-Halusinasi, alur checkpoint) → boleh **Bahasa Indonesia** agar
+     mudah dipahami tim lokal. Konsisten dalam satu file, jangan campur
+     acak dalam satu blok komentar.
+
+---
+
+## 2. Struktur & Penamaan Folder (Backend)
+
+```
+backend/app/
+├── api/
+│   ├── v1/
+│   │   ├── projects.py       # router: /api/v1/projects
+│   │   ├── clips.py          # router: /api/v1/clips
+│   │   ├── jobs.py           # router: /api/v1/jobs
+│   │   └── settings.py       # router: /api/v1/settings
+├── core/
+│   ├── config.py             # Pydantic BaseSettings, baca .env
+│   └── logging.py
+├── db/
+│   ├── models/                # 1 file = 1 tabel (project.py, clip.py, dst)
+│   ├── session.py
+│   └── migrations/            # dikelola Alembic, jangan edit manual
+├── schemas/                    # Pydantic request/response, terpisah dari models/
+├── services/
+│   ├── transcription/
+│   ├── analysis/
+│   ├── rendering/
+│   └── broll/
+├── jobs/
+│   ├── queue.py                # engine antrean berbasis processing_jobs
+│   └── workers/                 # 1 file = 1 job_type (ffmpeg_extract.py, dst)
+└── main.py
+```
+
+**Aturan penamaan:**
+- Folder & file Python: `snake_case`.
+- Class: `PascalCase` (mis. `ProjectService`, `HighlightMoment`).
+- Fungsi & variabel: `snake_case`.
+- Konstanta: `UPPER_SNAKE_CASE`.
+- Nama file model SQLAlchemy mengikuti nama tabel tunggal (tabel
+  `transcript_segments` → file `transcript_segment.py`, class
+  `TranscriptSegment`).
+- Setiap router FastAPI di-prefix versi API: `/api/v1/...` (memudahkan
+  breaking change di masa depan).
+
+---
+
+## 3. Struktur & Penamaan Folder (Frontend)
+
+```
+frontend/src/
+├── components/
+│   ├── ui/                    # komponen shadcn/ui (jangan edit isi asli, extend saja)
+│   └── shared/                 # komponen custom reusable (PascalCase file)
+├── pages/                       # 1 file = 1 route (mis. ProjectDetailPage.tsx)
+├── stores/                       # Zustand stores, suffix `Store` (mis. useProjectStore.ts)
+├── hooks/                         # custom hooks, prefix `use` (mis. useClipRender.ts)
+├── lib/
+│   ├── api/                        # API client per resource (projects.ts, clips.ts)
+│   └── utils.ts
+└── types/                            # shared TypeScript types/interfaces
+```
+
+**Aturan penamaan:**
+- Komponen React: `PascalCase.tsx` (mis. `SubtitleStyleEditor.tsx`).
+- Hook: `camelCase.ts`, wajib prefix `use`.
+- Store Zustand: `useXxxStore.ts`, state & actions dalam satu file per domain.
+- Tipe/interface: `PascalCase`, file `*.types.ts` jika lebih dari satu tipe.
+- Tidak ada default export untuk komponen kecuali file halaman (`pages/`).
+
+---
+
+## 4. Konvensi API (FastAPI)
+
+- REST resource pakai kata benda jamak: `/projects`, `/clips`, bukan `/getProjects`.
+- Response sukses selalu dibungkus schema Pydantic eksplisit, jangan
+  `return dict(...)` mentah.
+- Response error konsisten pakai `HTTPException` dengan `detail` berupa
+  pesan jelas (bukan stack trace mentah ke client).
+- Endpoint yang memicu proses berat (`POST /projects/{id}/transcribe`, dst)
+  **wajib** langsung `return 202 Accepted` + `job_id`, lalu progres dipantau
+  lewat WebSocket/SSE atau polling `GET /jobs/{job_id}`. Dilarang membuat
+  request menunggu (blocking) sampai Whisper/Ollama selesai.
+- Semua endpoint yang membaca/menulis file wajib memvalidasi path berada
+  di dalam `storage/{project_folder}/` — cegah path traversal.
+
+---
+
+## 5. Konvensi Database & Migrasi
+
+- Setiap perubahan skema **wajib** lewat Alembic migration, dan
+  `DATABASE.sql` di root repo wajib diupdate manual agar tetap jadi
+  dokumentasi ERD yang akurat (jangan biarkan keduanya berbeda).
+- Nama tabel: `snake_case`, jamak (`clips`, bukan `clip`).
+- Nama kolom FK: `<nama_tabel_singular>_id` (mis. `project_id`).
+- Setiap tabel wajib punya `created_at`; tabel yang bisa diedit wajib
+  tambah `updated_at`.
+- Jangan hapus data secara langsung untuk entitas riwayat (`clips`,
+  `analysis_results`) — gunakan status/flag jika perlu "soft delete",
+  supaya riwayat pembuatan klip (§3D SPECIFICATION.md) tetap utuh.
+
+---
+
+## 6. Format & Linting
+
+| Layer     | Formatter        | Linter     |
+|-----------|-------------------|------------|
+| Python     | `black`           | `ruff`     |
+| TypeScript  | `prettier`        | `eslint`   |
+
+- Jalankan formatter sebelum commit; jangan commit kode yang belum
+  di-format.
+- Baris maksimum: 100 karakter (Python & TS).
+- Import diurutkan: standard library → third-party → local (`isort`
+  convention, otomatis lewat `ruff --fix`).
+
+---
+
+## 7. Logging & Error Handling
+
+- Gunakan `logging` module Python dengan logger per-module
+  (`logger = logging.getLogger(__name__)`), jangan `print()`.
+- Setiap job worker wajib log minimal 3 titik: **start**, **success**,
+  **failure** — dan update `processing_jobs.status` sesuai itu juga.
+- Pesan error yang ditampilkan ke user (frontend) harus human-readable
+  Bahasa Indonesia; log teknis internal boleh Bahasa Inggris.
+- Kegagalan Pexels API **tidak boleh** melempar exception yang
+  menghentikan render — tangkap, catat `status = 'fallback_used'`, lanjut.
+
+---
+
+## 8. Testing
+
+- Backend: `pytest`, file test mengikuti struktur `tests/` yang
+  mirror struktur `app/` (mis. `tests/services/test_transcription.py`).
+- Setiap service inti (`transcription`, `analysis`, `rendering`, `broll`)
+  wajib punya minimal unit test dengan mock (tidak boleh test memanggil
+  Whisper/Ollama/FFmpeg sungguhan di CI — mock response-nya).
+- Frontend: `vitest` + `@testing-library/react` untuk komponen kritis
+  (form pengaturan subtitle, upload proyek).
+
+---
+
+## 9. Git & Commit
+
+- Commit message format: `<type>: <deskripsi singkat>`
+  Tipe yang dipakai: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
+  Contoh: `feat: tambah endpoint render clip dengan aspect ratio custom`.
+- Branch naming: `feature/<nama-singkat>`, `fix/<nama-singkat>`.
+- File yang wajib masuk `.gitignore`: `.env`, `venv/`, `node_modules/`,
+  `storage/`, `*.db`, `__pycache__/`, `.pytest_cache/`.
+- Jangan pernah commit API key, file video, atau file `.db` ke git.
+
+---
+
+## 10. Larangan Eksplisit untuk Agent
+
+- Jangan menjalankan proses AI berat secara sinkron di dalam HTTP request
+  handler.
+- Jangan menambahkan library/framework baru yang tidak tercantum di
+  `tech-stack.mdc` tanpa konfirmasi eksplisit dari user.
+- Jangan mengubah struktur folder inti (`api/`, `services/`, `jobs/`,
+  `db/`) tanpa alasan kuat — jika perlu, jelaskan dulu ke user sebelum
+  eksekusi.
+- Jangan generate kode yang mengabaikan urutan antrean
+  FFmpeg → Whisper → Ollama → Render.

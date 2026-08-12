@@ -1,0 +1,4 @@
+# Instal terpisah setelah requirements-web.txt (isolasi ekosistem AI)
+torch>=2.3
+faster-whisper>=1.0
+ffmpeg-python>=0.2

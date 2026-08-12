@@ -1,0 +1,36 @@
+# Environment & secrets
+.env
+.env.local
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+
+# Database & storage
+*.db
+data/*
+!data/.gitkeep
+storage/*
+!storage/.gitkeep
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
