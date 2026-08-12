@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.processing_job import ProcessingJob
@@ -10,6 +11,21 @@ from app.schemas.job import JobResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("", response_model=list[JobResponse])
+async def list_jobs(
+    project_id: int | None = None,
+    session: AsyncSession = Depends(get_db_session),
+) -> list[JobResponse]:
+    """Daftar semua job, opsional difilter per proyek."""
+    query = select(ProcessingJob).order_by(ProcessingJob.created_at.desc())
+    if project_id is not None:
+        query = query.where(ProcessingJob.project_id == project_id)
+
+    result = await session.execute(query)
+    jobs = result.scalars().all()
+    return [JobResponse.model_validate(j) for j in jobs]
 
 
 @router.get("/{job_id}", response_model=JobResponse)

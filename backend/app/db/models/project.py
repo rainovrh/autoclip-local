@@ -24,20 +24,22 @@ class Project(Base):
     )
 
     video_source: Mapped["VideoSource | None"] = relationship(
-        back_populates="project", uselist=False
+        back_populates="project", uselist=False, passive_deletes=True
     )
     transcript: Mapped["Transcript | None"] = relationship(
-        back_populates="project", uselist=False
+        back_populates="project", uselist=False, passive_deletes=True
     )
     analysis_results: Mapped[list["AnalysisResult"]] = relationship(
-        back_populates="project"
+        back_populates="project", passive_deletes=True
     )
-    clips: Mapped[list["Clip"]] = relationship(back_populates="project")
+    clips: Mapped[list["Clip"]] = relationship(
+        back_populates="project", passive_deletes=True
+    )
     processing_jobs: Mapped[list["ProcessingJob"]] = relationship(
-        back_populates="project"
+        back_populates="project", passive_deletes=True
     )
     garbage_collection_logs: Mapped[list["GarbageCollectionLog"]] = relationship(
-        back_populates="project"
+        back_populates="project", passive_deletes=True
     )
 
 

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -92,4 +93,33 @@ async def update_subtitle_style(
         "background_color": style_row.background_color,
         "background_opacity": style_row.background_opacity,
     }
+
+
+@router.get("/{clip_id}/download")
+async def download_clip(
+    clip_id: int,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Download klip yang sudah dirender."""
+    clip = await session.get(Clip, clip_id)
+    if clip is None:
+        raise HTTPException(status_code=404, detail="Klip tidak ditemukan.")
+
+    if clip.render_status != "completed" or not clip.output_path:
+        raise HTTPException(
+            status_code=422,
+            detail="Klip belum selesai dirender.",
+        )
+
+    file_path = Path(clip.output_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File klip tidak ditemukan.")
+
+    from fastapi.responses import FileResponse
+
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type="video/mp4",
+    )
 

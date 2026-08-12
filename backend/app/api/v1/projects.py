@@ -414,3 +414,23 @@ async def get_project(
     if project is None:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
     return ProjectResponse.model_validate(project)
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(
+    project_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    """Hapus proyek dan file terkait."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    folder = Path(project.folder_path)
+    if folder.exists():
+        import shutil
+
+        shutil.rmtree(folder, ignore_errors=True)
+
+    await session.delete(project)
+    await session.commit()
