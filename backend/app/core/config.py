@@ -20,6 +20,7 @@ ProjectStatus = Literal[
 ]
 
 JobType = Literal[
+    "youtube_download",
     "ffmpeg_extract_audio",
     "whisper_transcribe",
     "ollama_analyze",
@@ -73,7 +74,7 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://localhost:11434"
     default_ollama_model: str = "llama3.1:8b"
-    default_whisper_model: str = "large-v3"
+    default_whisper_model: str = "base"
 
     pexels_api_key: str = ""
 

@@ -17,6 +17,7 @@ from app.jobs.workers.garbage_collect import run_garbage_collect
 from app.jobs.workers.ollama_analyze import run_ollama_analyze
 from app.jobs.workers.render_clip import run_render_clip
 from app.jobs.workers.whisper_transcribe import run_whisper_transcribe
+from app.jobs.workers.youtube_download import run_youtube_download
 from app.services.webhooks import send_webhook_notification
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 UTC = timezone.utc
 
 WORKER_REGISTRY: dict[str, Callable[[AsyncSession, ProcessingJob], Awaitable[None]]] = {
+    "youtube_download": run_youtube_download,
     "ffmpeg_extract_audio": run_ffmpeg_extract,
     "whisper_transcribe": run_whisper_transcribe,
     "ollama_analyze": run_ollama_analyze,
@@ -74,6 +76,8 @@ async def run_worker_loop(stop_event: asyncio.Event | None = None) -> None:
 
         try:
             async for session in get_db_session():
+                await enqueue_scheduled_jobs()
+
                 job = await get_next_queued_job(session)
                 if job is None:
                     await session.close()

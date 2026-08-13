@@ -9,7 +9,7 @@ import yt_dlp
 logger = logging.getLogger(__name__)
 
 YOUTUBE_URL_PATTERN = re.compile(
-    r"^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/)[A-Za-z0-9_-]{11}(&.*)?$"
+    r"^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/)[A-Za-z0-9_-]{11}(\?.*)?(&.*)?$"
 )
 
 
@@ -21,7 +21,7 @@ def download_youtube_video(url: str, output_folder: Path) -> dict:
     """Download YouTube video to the specified folder using yt-dlp."""
     output_template = str(output_folder / "%(title)s.%(ext)s")
     ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
         "outtmpl": output_template,
         "noplaylist": True,
         "quiet": True,

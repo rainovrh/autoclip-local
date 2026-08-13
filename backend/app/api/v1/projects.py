@@ -147,12 +147,12 @@ async def upload_video(
     return VideoSourceResponse.model_validate(video_source)
 
 
-@router.post("/{project_id}/download-youtube", response_model=VideoSourceResponse, status_code=201)
+@router.post("/{project_id}/download-youtube", response_model=JobAcceptedResponse, status_code=202)
 async def download_youtube(
     project_id: int,
     session: AsyncSession = Depends(get_db_session),
-) -> VideoSourceResponse:
-    """Unduh video YouTube ke dalam proyek menggunakan yt-dlp."""
+) -> JobAcceptedResponse:
+    """Antrikan job unduhan YouTube untuk proyek."""
     project = await session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
@@ -170,50 +170,8 @@ async def download_youtube(
             detail="URL YouTube tidak valid.",
         )
 
-    existing_source = await session.execute(
-        select(VideoSource).where(VideoSource.project_id == project_id)
-    )
-    existing = existing_source.scalar_one_or_none()
-    if existing:
-        old_path = Path(existing.file_path)
-        if old_path.exists():
-            old_path.unlink()
-        await session.delete(existing)
-        await session.flush()
-
-    try:
-        metadata = download_youtube_video(youtube_url, Path(project.folder_path))
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Gagal mengunduh video: {exc}",
-        ) from exc
-
-    downloaded_path = Path(metadata["file_path"])
-    if not downloaded_path.exists():
-        raise HTTPException(
-            status_code=500,
-            detail="File video tidak ditemukan setelah unduhan.",
-        )
-
-    video_source = VideoSource(
-        project_id=project.id,
-        file_path=str(downloaded_path),
-        resolution=metadata.get("resolution"),
-        duration_seconds=metadata.get("duration"),
-        fps=metadata.get("fps"),
-    )
-    session.add(video_source)
-    await session.commit()
-    await session.refresh(video_source)
-
-    logger.info(
-        "YouTube diunduh: project=%s url=%s file=%s",
-        project_id,
-        youtube_url,
-        downloaded_path.name,
-    )
-    return VideoSourceResponse.model_validate(video_source)
+    job = await enqueue_job(session, project_id, "youtube_download", priority=15)
+    return JobAcceptedResponse(job_id=job.id)
 
 
 @router.post("/{project_id}/extract-audio", response_model=JobAcceptedResponse, status_code=202)
