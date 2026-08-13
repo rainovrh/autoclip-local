@@ -5,7 +5,7 @@ import {
   createApiKey,
   deleteApiKey,
   toggleApiKey,
-} from "@/lib/api/jobs";
+} from "@/lib/api/settings";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";

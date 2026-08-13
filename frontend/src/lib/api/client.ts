@@ -60,4 +60,16 @@ export function del<T>(path: string, headers?: Record<string, string>): Promise<
   return request<T>(path, { headers, method: "DELETE" });
 }
 
+export function patch<T>(
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<T> {
+  return request<T>(path, {
+    headers: { "Content-Type": "application/json", ...headers },
+    method: "PATCH",
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
 export { API_BASE };

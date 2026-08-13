@@ -14,17 +14,21 @@ export default function JobsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-      </div>
+      <Layout>
+        <div className="flex items-center justify-center min-h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+        </div>
+      </Layout>
     );
   }
 
   if (error) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <Alert variant="error">Failed to load jobs</Alert>
-      </div>
+      <Layout>
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <Alert variant="error">Failed to load jobs</Alert>
+        </div>
+      </Layout>
     );
   }
 
