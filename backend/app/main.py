@@ -8,6 +8,8 @@ from app.api.v1 import api_keys, clips, jobs, projects, settings
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.session import init_db
+from app.middleware.auth import AuthMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware
 
 
 @asynccontextmanager
@@ -27,6 +29,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=120, window_seconds=60)
+    app.add_middleware(AuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.cors_origins,
