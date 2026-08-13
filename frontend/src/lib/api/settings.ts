@@ -1,4 +1,4 @@
-import { request } from "./client";
+import { get } from "../api/client";
 
 export interface HealthResponse {
   status: string;
@@ -6,5 +6,5 @@ export interface HealthResponse {
 }
 
 export function fetchHealth(): Promise<HealthResponse> {
-  return request<HealthResponse>("/settings/health");
+  return get<HealthResponse>("/settings/health");
 }
