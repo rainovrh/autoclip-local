@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base
@@ -22,6 +22,11 @@ class ProcessingJob(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    is_recurring: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    webhook_url: Mapped[str | None] = mapped_column(String)
 
     project: Mapped["Project"] = relationship(back_populates="processing_jobs")
 

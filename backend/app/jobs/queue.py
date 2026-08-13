@@ -17,6 +17,9 @@ async def enqueue_job(
     project_id: int,
     job_type: JobType,
     priority: int = 0,
+    scheduled_at: datetime | None = None,
+    max_retries: int = 3,
+    webhook_url: str | None = None,
 ) -> ProcessingJob:
     """Daftarkan job baru ke antrean processing_jobs."""
     job = ProcessingJob(
@@ -24,11 +27,20 @@ async def enqueue_job(
         job_type=job_type,
         status="queued",
         priority=priority,
+        scheduled_at=scheduled_at,
+        max_retries=max_retries,
+        webhook_url=webhook_url,
     )
     session.add(job)
     await session.commit()
     await session.refresh(job)
-    logger.info("Job %s (%s) didaftarkan untuk proyek %s", job.id, job_type, project_id)
+    logger.info(
+        "Job %s (%s) didaftarkan untuk proyek %s scheduled=%s",
+        job.id,
+        job_type,
+        project_id,
+        scheduled_at,
+    )
     return job
 
 

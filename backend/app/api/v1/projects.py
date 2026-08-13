@@ -239,6 +239,70 @@ async def extract_audio(
     return JobAcceptedResponse(job_id=job.id)
 
 
+@router.post("/{project_id}/schedule", response_model=JobAcceptedResponse, status_code=202)
+async def schedule_project_jobs(
+    project_id: int,
+    payload: dict,
+    session: AsyncSession = Depends(get_db_session),
+) -> JobAcceptedResponse:
+    """Jadwalkan serangkaian job untuk proyek."""
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    scheduled_at_str = payload.get("scheduled_at")
+    scheduled_at = None
+    if scheduled_at_str:
+        from datetime import datetime
+
+        try:
+            scheduled_at = datetime.fromisoformat(scheduled_at_str.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail="Format scheduled_at tidak valid. Gunakan ISO 8601.",
+            )
+
+    webhook_url = payload.get("webhook_url")
+    job_types = payload.get("job_types", [])
+
+    if not job_types:
+        raise HTTPException(
+            status_code=422,
+            detail="job_types harus diisi.",
+        )
+
+    created_jobs = []
+    for job_type in job_types:
+        if job_type not in [
+            "ffmpeg_extract_audio",
+            "whisper_transcribe",
+            "ollama_analyze",
+            "render_clip",
+            "broll_search",
+            "garbage_collect",
+        ]:
+            continue
+
+        job = await enqueue_job(
+            session,
+            project_id,
+            job_type,
+            priority=0,
+            scheduled_at=scheduled_at,
+            webhook_url=webhook_url,
+        )
+        created_jobs.append(job.id)
+
+    if not created_jobs:
+        raise HTTPException(
+            status_code=422,
+            detail="Tidak ada job type yang valid.",
+        )
+
+    return JobAcceptedResponse(job_id=created_jobs[0])
+
+
 @router.post("/{project_id}/transcribe", response_model=JobAcceptedResponse, status_code=202)
 async def transcribe_project(
     project_id: int,

@@ -83,6 +83,11 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    worker_poll_interval: float = Field(default=1.0, ge=0.1, le=60.0)
+    webhook_timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+    default_webhook_url: str = ""
+    webhook_secret: str = ""
+
     @model_validator(mode="after")
     def resolve_paths(self) -> Self:
         storage = resolve_project_path(self.storage_root)
